@@ -1,0 +1,26 @@
+# Virtual Environments (Akan diabaikan agar tidak terunggah ke GitHub)
+.venv/
+env/
+venv/
+ENV/
+
+# Dataset & Results (Diabaikan sesuai permintaan karena ukuran besar/tidak diperlukan di server)
+Rawdataset/
+Results/
+Dataset/
+
+# Python Cache & Cekpoin Notebook
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.pytest_cache/
+
+# OS/IDE metadata
+.DS_Store
+.vscode/
+Thumbs.db
+
+# Streamlit secrets (sensitif, jangan diunggah ke GitHub)
+.streamlit/secrets.toml
+

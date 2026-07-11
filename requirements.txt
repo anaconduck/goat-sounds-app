@@ -1,0 +1,13 @@
+streamlit
+tensorflow
+librosa
+joblib
+numpy
+matplotlib
+soundfile
+pydub
+imageio-ffmpeg
+tqdm
+scikit-learn
+pandas
+seaborn
