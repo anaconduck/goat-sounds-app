@@ -149,8 +149,8 @@ Before feature extraction, raw `.m4a` recordings undergo a preprocessing pipelin
        │
        ▼
   Is it a valid vocalization?
-   /                       YES                         NO
- /                           ▼                             ▼
+   YES                      NO
+    ▼                        ▼
 [Labeled Clip]           [Rejected]
 ({class}_{index}.wav)    (noise_{index}.wav)
 ```
