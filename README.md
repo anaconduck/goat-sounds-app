@@ -515,10 +515,4 @@ The audio dataset is **not included** in this repository due to file size constr
 
 ---
 
-**Corresponding Author:** Wahyu Kusuma Wardhana  
-**Institution:** Program Studi S2 Ilmu Komputer  
-**Research Area:** Smart Farming, Audio Signal Processing, Deep Learning
-
----
-
 *All experiments are fully reproducible with `SEED = 42` applied to Python `random`, NumPy, and TensorFlow random number generators.*
