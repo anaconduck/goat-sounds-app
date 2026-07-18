@@ -8,12 +8,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import streamlit as st
 import tensorflow as tf
-import joblib
+import soundfile as sf
+import io
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# KONFIGURASI
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MODEL_PATH = "best_model_dnn_final.keras"
+MODEL_PATH = "best_model.keras"
 CLASSES    = ["lapar", "normal", "stress"]
 SR         = 16000
 DURATION   = 2.0
@@ -22,505 +20,415 @@ N_FFT      = 512
 HOP_LENGTH = 256
 MAX_FRAMES = int(np.ceil(SR * DURATION / HOP_LENGTH))
 
-# Emoji & warna per kelas
 CLASS_CONFIG = {
-    "lapar":  {"emoji": "🍽️", "color": "#FF6B6B", "icon": "😋", "desc": "Kambing sedang **lapar** dan membutuhkan pakan."},
-    "normal": {"emoji": "😊", "color": "#4ECDC4", "icon": "🐐", "desc": "Kambing dalam kondisi **normal** dan sehat."},
-    "stress": {"emoji": "😰", "color": "#FF8E53", "icon": "⚠️",  "desc": "Kambing sedang **stress**, perlu perhatian khusus!"},
+    "lapar":  {"emoji": "🍽️", "color": "#F59E0B", "icon": "😋", "desc": "Kambing butuh pakan tambahan segera."},
+    "normal": {"emoji": "😊", "color": "#10B981", "icon": "🐐", "desc": "Kondisi sehat, tenang, dan sangat baik."},
+    "stress": {"emoji": "😰", "color": "#EF4444", "icon": "⚠️",  "desc": "Kambing terindikasi stres! Segera periksa lingkungan."},
 }
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FEATURE EXTRACTION (sama persis dengan notebook training)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def extract_mfcc_from_audio(y, sr=SR):
-    """Ekstrak MFCC-40 + delta + delta-delta, lalu flatten ke mean+std."""
-    # Pastikan panjang konsisten
-    target_len = int(sr * DURATION)
-    if len(y) < target_len:
-        y = np.pad(y, (0, target_len - len(y)), mode='reflect')
+def extract_mfcc(signal, sr=SR, n_mfcc=N_MFCC, lifter=0):
+    mfcc = librosa.feature.mfcc(y=signal, sr=sr, n_mfcc=n_mfcc,
+                                 n_fft=N_FFT, hop_length=HOP_LENGTH, lifter=lifter)
+    features = mfcc.T  
+    if features.shape[0] < MAX_FRAMES:
+        features = np.pad(features, ((0, MAX_FRAMES - features.shape[0]), (0, 0)), mode='constant')
     else:
-        y = y[:target_len]
+        features = features[:MAX_FRAMES]
+    return features
 
-    # Pre-emphasis
-    y = librosa.effects.preemphasis(y)
-
-    # MFCC + delta + delta-delta
-    mfcc   = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=N_MFCC,
-                                   n_fft=N_FFT, hop_length=HOP_LENGTH)
-    delta  = librosa.feature.delta(mfcc)
-    delta2 = librosa.feature.delta(mfcc, order=2)
-
-    combined = np.vstack([mfcc, delta, delta2])  # (120, frames)
-
-    # Pad / truncate
-    if combined.shape[1] < MAX_FRAMES:
-        pad = MAX_FRAMES - combined.shape[1]
-        combined = np.pad(combined, ((0, 0), (0, pad)), mode='constant')
-    else:
-        combined = combined[:, :MAX_FRAMES]
-
-    # Flat: mean + std per feature row → (240,)
-    mean = combined.mean(axis=1)
-    std  = combined.std(axis=1)
-    flat = np.hstack([mean, std])
-
-    return flat, combined, mfcc
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# LOAD MODEL & PREPROCESSORS (cached)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @st.cache_resource
-def load_model_and_preprocessors():
-    model = tf.keras.models.load_model(MODEL_PATH)
-    scaler = joblib.load('scaler_flat.pkl')
-    norm_params = np.load('norm_params.npy')  # [mu, sigma]
-    return model, scaler, norm_params
+def load_keras_model():
+    if not os.path.exists(MODEL_PATH):
+        return None
+    return tf.keras.models.load_model(MODEL_PATH)
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# VISUALISASI
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def plot_waveform(y, sr):
-    fig, ax = plt.subplots(figsize=(10, 3))
-    fig.patch.set_facecolor('#0E1117')
-    ax.set_facecolor('#0E1117')
-    times = np.linspace(0, len(y) / sr, len(y))
-    ax.plot(times, y, color='#4ECDC4', linewidth=0.6, alpha=0.9)
-    ax.fill_between(times, y, alpha=0.15, color='#4ECDC4')
-    ax.set_xlabel('Waktu (detik)', color='#FAFAFA', fontsize=10)
-    ax.set_ylabel('Amplitudo', color='#FAFAFA', fontsize=10)
-    ax.set_title('Gelombang Suara', color='#FAFAFA', fontsize=12, fontweight='bold')
-    ax.tick_params(colors='#AAAAAA')
-    ax.spines['bottom'].set_color('#333333')
-    ax.spines['left'].set_color('#333333')
+def plot_full_spectrogram(y, sr, start_time=None, duration=2.0):
+    fig, ax = plt.subplots(figsize=(10, 3.5), dpi=300)
+    
+    # Tema Dark UI
+    fig.patch.set_facecolor('#0B100E')
+    ax.set_facecolor('#0B100E')
+    
+    S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
+    S_dB = librosa.power_to_db(S, ref=np.max)
+    
+    img = librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', sr=sr, fmax=8000, ax=ax, cmap='magma')
+    
+    if start_time is not None:
+        ax.axvspan(start_time, start_time + duration, color='white', alpha=0.15)
+        ax.axvline(start_time, color='#10B981', linestyle='-', linewidth=2.5)
+        ax.axvline(start_time + duration, color='#10B981', linestyle='-', linewidth=2.5)
+        
+    ax.set_title('Spektrogram Frekuensi Audio', color='#E2E8F0', fontsize=13, fontweight='bold')
+    ax.set_xlabel('Waktu (detik)', color='#94A3B8', fontsize=10)
+    ax.set_ylabel('Frekuensi (Hz)', color='#94A3B8', fontsize=10)
+    ax.tick_params(colors='#64748B')
+    
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.grid(axis='y', alpha=0.15, color='#555555')
+    ax.spines['bottom'].set_color('#1E293B')
+    ax.spines['left'].set_color('#1E293B')
+    ax.grid(color='#1E293B', alpha=0.5, linestyle='--')
+    
     plt.tight_layout()
     return fig
 
 
-def plot_mfcc(mfcc, sr):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    fig.patch.set_facecolor('#0E1117')
-    ax.set_facecolor('#0E1117')
-    img = librosa.display.specshow(mfcc, sr=sr, hop_length=HOP_LENGTH,
-                                    x_axis='time', ax=ax, cmap='magma')
-    ax.set_title('Spektrogram MFCC', color='#FAFAFA', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Koefisien MFCC', color='#FAFAFA', fontsize=10)
-    ax.set_xlabel('Waktu (detik)', color='#FAFAFA', fontsize=10)
-    ax.tick_params(colors='#AAAAAA')
-    cbar = fig.colorbar(img, ax=ax, format='%+2.0f dB')
-    cbar.ax.yaxis.set_tick_params(color='#AAAAAA')
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='#AAAAAA')
-    plt.tight_layout()
-    return fig
-
-
-def plot_prediction_bars(probs):
-    fig, ax = plt.subplots(figsize=(8, 3))
-    fig.patch.set_facecolor('#0E1117')
-    ax.set_facecolor('#0E1117')
+def plot_prediction_bars_dark(probs):
+    fig, ax = plt.subplots(figsize=(8, 2.5), dpi=300)
+    fig.patch.set_facecolor('#0B100E')
+    ax.set_facecolor('#0B100E')
 
     bar_colors = [CLASS_CONFIG[c]['color'] for c in CLASSES]
     bar_labels = [f"{CLASS_CONFIG[c]['emoji']} {c.capitalize()}" for c in CLASSES]
     percentages = probs * 100
 
     bars = ax.barh(bar_labels, percentages, color=bar_colors, height=0.5,
-                   edgecolor='none', alpha=0.85)
+                   edgecolor='none', alpha=0.9)
 
     for bar, pct in zip(bars, percentages):
-        ax.text(bar.get_width() + 1, bar.get_y() + bar.get_height()/2,
-                f'{pct:.1f}%', va='center', ha='left', color='#FAFAFA',
-                fontweight='bold', fontsize=12)
+        ax.text(bar.get_width() + 1.5, bar.get_y() + bar.get_height()/2,
+                f'{pct:.1f}%', va='center', ha='left', color='#F8FAFC',
+                fontweight='bold', fontsize=13)
 
     ax.set_xlim(0, 110)
-    ax.set_title('Probabilitas Prediksi', color='#FAFAFA', fontsize=12, fontweight='bold')
-    ax.tick_params(colors='#CCCCCC')
-    ax.spines['bottom'].set_color('#333333')
-    ax.spines['left'].set_color('#333333')
+    ax.tick_params(colors='#94A3B8')
+    ax.spines['bottom'].set_color('#1E293B')
+    ax.spines['left'].set_color('#1E293B')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.invert_yaxis()
-    ax.grid(axis='x', alpha=0.15, color='#555555')
+    ax.grid(axis='x', alpha=0.1, color='#F8FAFC')
     plt.tight_layout()
     return fig
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CUSTOM CSS
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CUSTOM_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&display=swap');
 
-    /* Global */
+    /* Global Base */
     .stApp {
-        font-family: 'Poppins', sans-serif;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        background-color: #0B100E;
+        color: #E2E8F0;
     }
 
-    /* Hero header */
+    /* Animasi Futuristik */
+    @keyframes subtleGlow {
+        0% { box-shadow: 0 0 15px rgba(16, 185, 129, 0.15); }
+        50% { box-shadow: 0 0 35px rgba(16, 185, 129, 0.35); }
+        100% { box-shadow: 0 0 15px rgba(16, 185, 129, 0.15); }
+    }
+    @keyframes floatUp {
+        0% { transform: translateY(5px); opacity: 0.9; }
+        100% { transform: translateY(0px); opacity: 1; }
+    }
+
+    /* Hero header with Glassmorphism + Glow */
     .hero-header {
-        background: linear-gradient(135deg, #2D5016 0%, #4A7C2E 40%, #6B8F3C 70%, #8B6914 100%);
-        padding: 2.5rem 2rem;
-        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(6, 78, 59, 0.3) 100%);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+        padding: 2rem 1.5rem; /* Dikurangi dari 3rem agar jarak atas/bawah tidak terlalu jauh */
+        border-radius: 24px;
         text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 8px 32px rgba(45, 80, 22, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 1.5rem;
+        animation: subtleGlow 4s infinite alternate;
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-header::before {
+        content: '';
+        position: absolute;
+        top: -50%; left: -50%; width: 200%; height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 60%);
+        pointer-events: none;
     }
     .hero-header h1 {
-        color: #FFFFFF;
-        font-size: 2.2rem;
+        font-size: 2.8rem;
+        font-weight: 800;
         margin: 0;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        letter-spacing: 1px;
+        letter-spacing: -0.03em;
+        background: -webkit-linear-gradient(45deg, #6EE7B7, #10B981);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0px 4px 20px rgba(16, 185, 129, 0.4);
     }
     .hero-header p {
-        color: #E0E8D0;
-        font-size: 1.05rem;
-        margin-top: 0.6rem;
-        font-weight: 300;
+        color: #94A3B8;
+        font-size: 1.2rem;
+        margin-top: 1rem;
+        font-weight: 400;
     }
 
-    /* Upload area */
-    .upload-section {
-        background: linear-gradient(145deg, #1a2e0a 0%, #1E3A12 100%);
-        border: 2px dashed #4A7C2E;
-        border-radius: 16px;
-        padding: 2rem;
-        text-align: center;
-        margin: 1.5rem 0;
-        transition: all 0.3s ease;
-    }
-    .upload-section:hover {
-        border-color: #6B8F3C;
-        box-shadow: 0 4px 20px rgba(74, 124, 46, 0.2);
-    }
-
-    /* Result card */
+    /* Result card Premium - Centered */
     .result-card {
-        border-radius: 16px;
-        padding: 2rem;
+        border-radius: 24px;
+        padding: 3rem 1.5rem;
         text-align: center;
-        margin: 1.5rem 0;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-        border: 1px solid rgba(255,255,255,0.08);
+        margin: 0rem 0 1.5rem 0; /* Sweet spot: tidak sedekat -0.5rem, tapi tidak sejauh 0.5rem */
+        background: #111815;
+        box-shadow: 0 20px 50px -10px rgba(0,0,0,0.8);
+        backdrop-filter: blur(12px);
+        animation: floatUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     .result-card h2 {
-        margin: 0.5rem 0 0.3rem 0;
-        font-size: 1.8rem;
+        margin: 0.8rem 0 0.2rem 0;
+        font-size: 2.2rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        text-transform: uppercase;
     }
     .result-card .emoji-big {
-        font-size: 4rem;
+        font-size: 5rem;
         display: block;
         margin-bottom: 0.5rem;
+        filter: drop-shadow(0 10px 15px rgba(0,0,0,0.5));
     }
     .result-card .confidence {
-        font-size: 2.4rem;
-        font-weight: 700;
+        font-size: 3.5rem;
+        font-weight: 800;
         margin: 0.5rem 0;
     }
     .result-card .desc {
-        font-size: 1.05rem;
+        font-size: 1.15rem;
         opacity: 0.9;
-        margin-top: 0.5rem;
+        margin-top: 1.2rem;
+        color: #CBD5E1;
     }
 
-    /* Info card */
-    .info-card {
-        background: linear-gradient(145deg, #1a2e0a 0%, #1E3A12 100%);
+    /* Section headers yang menarik */
+    .section-header {
+        display: inline-block;
+        padding: 0.5rem 1.2rem;
+        background: rgba(16, 185, 129, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.3);
         border-radius: 12px;
-        padding: 1.2rem 1.5rem;
-        margin: 0.8rem 0;
-        border-left: 4px solid #4A7C2E;
-    }
-    .info-card h4 {
-        color: #8BBA6B;
-        margin: 0 0 0.3rem 0;
-    }
-    .info-card p {
-        color: #CCDDBB;
-        margin: 0;
-        font-size: 0.9rem;
+        color: #6EE7B7 !important;
+        font-size: 1.0rem !important; /* Diperkecil lagi agar lebih proporsional */
+        font-weight: 700;
+        margin-top: 1.2rem !important; /* Didekatkan dengan elemen di atasnya (awalnya 2rem) */
+        margin-bottom: 1.5rem !important;
+        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.1);
     }
 
-    /* Feature badges */
-    .feature-row {
-        display: flex;
-        gap: 1rem;
-        justify-content: center;
-        flex-wrap: wrap;
-        margin: 1rem 0;
+    /* Streamlit overrides: Keren Button */
+    .stButton>button {
+        background: linear-gradient(135deg, #10B981 0%, #047857 100%) !important;
+        color: white !important;
+        border-radius: 14px !important;
+        border: none !important;
+        font-weight: 700 !important;
+        font-size: 1.1rem !important; /* Disamakan dengan teks langkah */
+        padding: 0.5rem 2rem !important; /* Dikurangi agar tombol tidak terlalu gemuk */
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3) !important;
+        margin-top: 0.6rem !important; /* Sweet spot: tidak sedekat 0.2, tidak sejauh 1.0 */
+        margin-bottom: -0.8rem !important; /* Dirapatkan ke bawah (Langkah 3) */
     }
-    .feature-badge {
-        background: rgba(74, 124, 46, 0.2);
-        border: 1px solid rgba(74, 124, 46, 0.4);
-        border-radius: 24px;
-        padding: 0.4rem 1rem;
-        font-size: 0.85rem;
-        color: #8BBA6B;
-    }
-
-    /* Footer */
-    .footer {
-        text-align: center;
-        padding: 2rem 0 1rem 0;
-        color: #6B7B5E;
-        font-size: 0.85rem;
-        border-top: 1px solid #2A3A1A;
-        margin-top: 3rem;
+    .stButton>button:hover {
+        transform: translateY(-3px) scale(1.02) !important;
+        box-shadow: 0 12px 25px rgba(16, 185, 129, 0.5) !important;
     }
 
-    /* Fix Streamlit default padding / margins */
+    /* Fix container padding */
     .block-container {
         padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        max-width: 1200px !important;
+        padding-bottom: 4rem !important; /* Diberi ruang agar tidak tertutup footer */
+        max-width: 800px !important;
     }
 
-    /* Responsive Design for Mobile (HP) */
+    /* Footer selalu di bawah (Fixed) */
+    .footer-fixed {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: rgba(11, 16, 14, 0.95);
+        backdrop-filter: blur(5px);
+        text-align: center;
+        padding: 12px 0;
+        color: #475569;
+        font-size: 0.85rem;
+        z-index: 999;
+        border-top: 1px solid #1E293B;
+    }
+
+    /* Mobile specific adjustments */
     @media (max-width: 768px) {
         .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
+            padding-top: 1.5rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
         }
         .hero-header {
-            padding: 1.5rem 1rem;
-            margin-bottom: 1rem;
+            padding: 2rem 1rem;
+            border-radius: 18px;
         }
         .hero-header h1 {
-            font-size: 1.6rem;
-        }
-        .hero-header p {
-            font-size: 0.9rem;
-        }
-        .upload-section {
-            padding: 1.5rem 1rem;
-        }
-        .result-card {
-            padding: 1.5rem 1rem;
-        }
-        .result-card h2 {
-            font-size: 1.4rem;
-        }
-        .result-card .confidence {
             font-size: 2rem;
         }
+        .hero-header p {
+            font-size: 1rem;
+        }
+        .result-card {
+            padding: 2rem 1rem;
+            border-radius: 18px;
+        }
         .result-card .emoji-big {
-            font-size: 3rem;
+            font-size: 4rem;
         }
-        .feature-badge {
-            font-size: 0.75rem;
-            padding: 0.3rem 0.8rem;
+        .result-card h2 {
+            font-size: 1.8rem;
         }
-        .info-card {
-            padding: 1rem;
+        .result-card .confidence {
+            font-size: 2.8rem;
         }
     }
-
-    /* Hide default Streamlit elements */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
 </style>
 """
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MAIN APP
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def main():
     st.set_page_config(
-        page_title="GoatVoice Analyzer 🐐",
+        page_title="GoatVoice Analyzer",
         page_icon="🐐",
-        layout="wide",
-        initial_sidebar_state="collapsed"
+        layout="centered"
     )
 
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    # ── Hero Header ────────────────────────────────────────────────────
+    # Load Model
+    model = load_keras_model()
+    if model is None:
+        st.error(f"❌ Model tidak ditemukan di path: {MODEL_PATH}. Pastikan Anda sudah menjalankan training.")
+        return
+
+    # Hero Header
     st.markdown("""
     <div class="hero-header">
         <h1>🐐 GoatVoice Analyzer</h1>
-        <p>Sistem Cerdas Klasifikasi Kondisi Kambing Berdasarkan Analisis Suara</p>
-        <div class="feature-row">
-            <span class="feature-badge">🎵 MFCC-40 Feature Extraction</span>
-            <span class="feature-badge">🧠 Deep Learning</span>
-            <span class="feature-badge">📊 3 Kelas Klasifikasi</span>
-        </div>
+        <p>Pantau kesehatan dan kenyamanan kambing Anda secara otomatis melalui suara.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Layout: Sidebar Info + Main ────────────────────────────────────
-    col_main, col_info = st.columns([3, 1])
-
-    with col_info:
-        st.markdown("### 🌾 Panduan")
-
-        st.markdown("""
-        <div class="info-card">
-            <h4>📁 Format File</h4>
-            <p>Upload file audio dalam format <b>WAV</b> yang berisi suara kambing.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="info-card">
-            <h4>🐐 Kelas Deteksi</h4>
-            <p>
-                🍽️ <b>Lapar</b> – perlu pakan<br>
-                😊 <b>Normal</b> – sehat<br>
-                😰 <b>Stress</b> – perlu perhatian
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="info-card">
-            <h4>⚙️ Teknologi</h4>
-            <p>
-                Fitur: MFCC-40 + Delta + Delta²<br>
-                Model: CNN (Convolutional Neural Network)<br>
-                Akurasi: ditampilkan setelah prediksi
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="info-card">
-            <h4>🐾 Tips</h4>
-            <p>Pastikan rekaman audio jelas dan dominan suara kambing, hindari kebisingan latar belakang.</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col_main:
-        st.markdown("### 🎤 Upload Suara Kambing")
-
-        st.markdown("""
-        <div class="upload-section">
-            <p style="font-size: 2.5rem; margin: 0;">🐐🎵</p>
-            <p style="color: #8BBA6B; font-size: 1rem; margin: 0.5rem 0;">
-                Seret & lepas file audio WAV di bawah ini
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        uploaded_file = st.file_uploader(
-            "Pilih file audio WAV",
-            type=["wav"],
-            help="Upload file audio WAV berisi suara kambing (maks ~10 detik)",
-            label_visibility="collapsed"
-        )
-
+    # Input Audio
+    st.markdown('<div class="section-header">🎙️ Langkah 1: Input Suara Kambing</div>', unsafe_allow_html=True)
+    
+    input_method = st.radio("Pilih metode input:", ["Unggah File Audio", "Rekam Langsung (Mikrofon)"], horizontal=True)
+    
+    audio_data = None
+    
+    if input_method == "Unggah File Audio":
+        uploaded_file = st.file_uploader("Upload rekaman (WAV/MP3)", type=["wav", "mp3"])
         if uploaded_file is not None:
-            # ── Audio Player ───────────────────────────────────────────
-            st.markdown("---")
-            st.markdown("#### 🔊 Putar Audio")
-            st.audio(uploaded_file, format="audio/wav")
+            audio_data = uploaded_file.getvalue()
+    else:
+        st.info("💡 Tekan tombol mikrofon di bawah untuk merekam suara. Usahakan suara kambing terdengar jelas.")
+        recorded_audio = st.audio_input("Mulai Perekaman")
+        if recorded_audio is not None:
+            audio_data = recorded_audio.getvalue()
 
-            # ── Load audio ─────────────────────────────────────────────
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                tmp.write(uploaded_file.getvalue())
-                tmp_path = tmp.name
+    if audio_data is not None:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio_data)
+            tmp_path = tmp.name
 
-            try:
-                y, sr = librosa.load(tmp_path, sr=SR, duration=DURATION)
-            except Exception as e:
-                st.error(f"❌ Gagal memuat file audio: {e}")
-                return
-            finally:
-                os.unlink(tmp_path)
+        try:
+            y, sr = librosa.load(tmp_path, sr=SR)
+            duration = librosa.get_duration(y=y, sr=sr)
+        except Exception as e:
+            err_str = str(e)
+            st.error(f"❌ Gagal memproses dokumen audio: {err_str}")
+            return
+        finally:
+            os.unlink(tmp_path)
 
-            # ── Visualisasi Waveform & MFCC ────────────────────────────
-            st.markdown("#### 📈 Analisis Audio")
-            tab_wave, tab_mfcc = st.tabs(["🌊 Gelombang Suara", "🎨 Spektrogram MFCC"])
+        # Pilih Interval
+        st.markdown('<div class="section-header">✂️ Langkah 2: Seleksi Bagian Terbaik</div>', unsafe_allow_html=True)
+        
+        # Peringatan jika audio terlalu pendek atau pas 2 detik
+        if duration <= DURATION + 0.05:
+            st.success(f"⚡ **Durasi Pas:** Audio Anda ({duration:.1f}s) memenuhi syarat (≤ 2 detik). Sistem akan langsung memprosesnya secara utuh.")
+            start_time = 0.0
+        else:
+            st.markdown("<p style='color: #94A3B8; font-size: 1rem;'>Geser slider untuk memilih <b>2 detik</b> suara yang paling jernih dari seluruh rekaman.</p>", unsafe_allow_html=True)
+            max_val = max(0.1, duration - DURATION)
+            start_time = st.slider("Titik Mulai (Start Time)", min_value=0.0, max_value=float(max_val), value=0.0, step=0.1)
+        
+        # Plot spectrogram
+        st.markdown("<div style='margin-top: 1rem;'></div>", unsafe_allow_html=True) # Tambah jarak atas agar tidak mepet
+        fig_spec = plot_full_spectrogram(y, sr, start_time=start_time, duration=DURATION)
+        st.pyplot(fig_spec)
+        plt.close(fig_spec)
+        
+        start_sample = int(start_time * sr)
+        end_sample = int((start_time + DURATION) * sr)
+        y_slice = y[start_sample:end_sample]
+        
+        if len(y_slice) < int(DURATION * sr):
+            y_slice = np.pad(y_slice, (0, int(DURATION * sr) - len(y_slice)), mode='constant')
 
-            with tab_wave:
-                fig_wave = plot_waveform(y, sr)
-                st.pyplot(fig_wave)
-                plt.close(fig_wave)
+        buffer = io.BytesIO()
+        sf.write(buffer, y_slice, sr, format='wav')
+        
+        st.markdown("<p style='color: #94A3B8; font-size: 0.9rem; margin-top: 5px; margin-bottom: 8px;'>Dengarkan hasil potongan:</p>", unsafe_allow_html=True)
+        st.audio(buffer.getvalue(), format="audio/wav")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            analyze_button = st.button("✨ Analisis Suara Sekarang", type="primary", use_container_width=True)
 
-            with tab_mfcc:
-                # Ekstrak fitur
-                flat_features, combined_feat, mfcc_raw = extract_mfcc_from_audio(y, sr)
-                fig_mfcc = plot_mfcc(mfcc_raw, sr)
-                st.pyplot(fig_mfcc)
-                plt.close(fig_mfcc)
+        # Hasil Prediksi
+        if analyze_button:
+            st.markdown('<div class="section-header">📊 Langkah 3: Hasil Analisis AI</div>', unsafe_allow_html=True)
+            with st.spinner("🚀 Mengekstraksi pola suara..."):
+                features = extract_mfcc(y_slice, sr=sr, n_mfcc=N_MFCC)
+                input_data = np.expand_dims(features, axis=0)
 
-            # ── Prediksi ───────────────────────────────────────────────
-            st.markdown("---")
-            with st.spinner("🔍 Menganalisis suara kambing..."):
-                flat_features, combined_feat, mfcc_raw = extract_mfcc_from_audio(y, sr)
-                model, scaler, norm_params = load_model_and_preprocessors()
-                mu_global, sig_global = norm_params[0], norm_params[1]
-
-                # Normalisasi global sinyal akustik sesuai training
-                combined_norm = (combined_feat - mu_global) / (sig_global + 1e-8)
-
-                # Ekstrak mean dan std
-                mean_norm = combined_norm.mean(axis=1)
-                std_norm  = combined_norm.std(axis=1)
-                flat_norm = np.hstack([mean_norm, std_norm])
-
-                # Standard scaling sesuai training
-                input_data = scaler.transform(flat_norm.reshape(1, -1))
-
-                # Prediksi
                 probs = model.predict(input_data, verbose=0)[0]
                 pred_idx  = np.argmax(probs)
                 pred_cls  = CLASSES[pred_idx]
                 pred_conf = probs[pred_idx] * 100
 
-            # ── Hasil Prediksi ─────────────────────────────────────────
             cfg = CLASS_CONFIG[pred_cls]
-
+            
             st.markdown(f"""
-            <div class="result-card" style="background: linear-gradient(135deg, 
-                {cfg['color']}22 0%, {cfg['color']}11 100%);
-                border: 2px solid {cfg['color']}44;">
+            <div class="result-card" style="border: 2px solid {cfg['color']}55; box-shadow: 0 0 40px {cfg['color']}33;">
                 <span class="emoji-big">{cfg['icon']}</span>
-                <h2 style="color: {cfg['color']};">Kondisi: {pred_cls.upper()}</h2>
-                <div class="confidence" style="color: {cfg['color']};">{pred_conf:.1f}%</div>
-                <p style="color: #AAAAAA; font-size: 0.85rem;">Tingkat Kepercayaan</p>
-                <p class="desc" style="color: #DDDDDD;">{cfg['desc']}</p>
+                <p style="color: #94A3B8; font-size: 1.1rem; margin-bottom: -5px; letter-spacing: 1px;">Kondisi Terdeteksi</p>
+                <h2 style="color: {cfg['color']}; text-shadow: 0 0 20px {cfg['color']}66;">{pred_cls.upper()}</h2>
+                <div class="confidence" style="color: #F8FAFC;">{pred_conf:.1f}<span style="font-size: 2rem; color: #94A3B8;">%</span></div>
+                <p style="color: #64748B; font-size: 1rem; margin-top: -15px;">Akurasi Prediksi</p>
+                <p class="desc">{cfg['desc']}</p>
             </div>
             """, unsafe_allow_html=True)
 
-            # ── Bar chart probabilitas ─────────────────────────────────
-            st.markdown("#### 📊 Detail Probabilitas")
-            fig_bars = plot_prediction_bars(probs)
+            # Bar Chart Probabilitas
+            st.markdown("<p style='color: #F8FAFC; font-weight: 700; font-size: 1.2rem; margin-top: 1rem;'>Grafik Probabilitas:</p>", unsafe_allow_html=True)
+            fig_bars = plot_prediction_bars_dark(probs)
             st.pyplot(fig_bars)
             plt.close(fig_bars)
-
-            # ── Rekomendasi ────────────────────────────────────────────
-            st.markdown("#### 💡 Rekomendasi")
+            
+            # Saran interaktif
+            st.markdown("<br><p style='color: #F8FAFC; font-weight: 700; font-size: 1.2rem;'>💡 Saran Tindakan:</p>", unsafe_allow_html=True)
             if pred_cls == "lapar":
-                st.success("🌿 **Berikan pakan** yang cukup. Pastikan ketersediaan rumput, "
-                           "konsentrat, dan air minum. Periksa jadwal pemberian pakan secara teratur.")
+                st.warning("**Tindakan Prioritas:** Segera sediakan pakan segar dan pastikan ketersediaan air minum.")
             elif pred_cls == "normal":
-                st.info("✅ Kambing dalam kondisi **baik**. Lanjutkan pemeliharaan rutin. "
-                        "Pastikan kandang bersih dan nyaman.")
-            else:  # stress
-                st.warning("⚠️ Kambing mengalami **stress**. Periksa kemungkinan penyebab: "
-                           "suhu lingkungan, kepadatan kandang, predator, atau kondisi kesehatan. "
-                           "Konsultasikan dengan dokter hewan jika perlu.")
+                st.success("**Aman Terkendali:** Ternak nyaman. Cukup lanjutkan perawatan rutin Anda.")
+            else:  
+                st.error("**Perhatian Khusus:** Lakukan pengecekan fisik kambing atau amati kondisi lingkungan sekitar kandang (panas, predator, sakit).")
 
-    # ── Footer ─────────────────────────────────────────────────────────
+    # Footer
     st.markdown("""
-    <div class="footer">
-        <p>🐐 GoatVoice Analyzer &nbsp;|&nbsp; Klasifikasi Suara Kambing dengan Deep Learning</p>
-        <p>MFCC-40 + Delta + Delta² &nbsp;•&nbsp; Dense Neural Network &nbsp;•&nbsp; TensorFlow/Keras</p>
+    <div class="footer-fixed">
+        &copy; 2026 GoatVoice Analyzer. Hak Cipta Dilindungi.
     </div>
     """, unsafe_allow_html=True)
-
 
 if __name__ == "__main__":
     main()
