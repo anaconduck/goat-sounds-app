@@ -8,7 +8,6 @@ ENV/
 Rawdataset/
 Results/
 Dataset/
-Documents/
 
 # Python Cache & Cekpoin Notebook
 __pycache__/
