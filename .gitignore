@@ -24,3 +24,5 @@ Thumbs.db
 # Streamlit secrets (sensitif, jangan diunggah ke GitHub)
 .streamlit/secrets.toml
 
+# Notebook riset utama (rahasia/jangan diunggah)
+Notebooks/research_pipeline.ipynb

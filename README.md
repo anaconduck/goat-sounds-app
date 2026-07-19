@@ -506,6 +506,13 @@ The audio dataset is **not included** in this repository due to file size constr
 >
 > Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://link-ke-google-drive-anda-disini.com)**
 
+> [!NOTE]
+> **To request the complete Google Colab Notebook:**
+>
+> The full, comprehensive Google Colab notebook (`research_pipeline.ipynb`) containing the entire training and optimization process is available upon request. Please email the author specifying your academic background and purpose.
+>
+> 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
+
 ### Dataset Terms of Use
 
 - Academic use only
