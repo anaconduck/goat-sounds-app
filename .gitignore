@@ -1,10 +1,10 @@
-# Virtual Environments (Akan diabaikan agar tidak terunggah ke GitHub)
+# Virtual Environments
 .venv/
 env/
 venv/
 ENV/
 
-# Dataset & Results (Diabaikan sesuai permintaan karena ukuran besar/tidak diperlukan di server)
+# Dataset & Results
 Rawdataset/
 Results/
 Dataset/
@@ -21,8 +21,8 @@ __pycache__/
 .vscode/
 Thumbs.db
 
-# Streamlit secrets (sensitif, jangan diunggah ke GitHub)
+# Streamlit secrets 
 .streamlit/secrets.toml
 
-# Notebook riset utama (rahasia/jangan diunggah)
+# Notebook riset utama 
 Notebooks/research_pipeline.ipynb
