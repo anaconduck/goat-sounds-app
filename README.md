@@ -504,7 +504,7 @@ The audio dataset is **not included** in this repository due to file size constr
 >
 > 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
 >
-> Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://link-ke-google-drive-anda-disini.com)**
+> Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://drive.google.com/drive/folders/1GbyV6n6u0nKs_SCsu1AZ1Vo0HdbJR2Uh?usp=sharing)**
 
 > [!NOTE]
 > **To request the complete Google Colab Notebook:**
