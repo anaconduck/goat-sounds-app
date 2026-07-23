@@ -21,7 +21,7 @@ HOP_LENGTH = 256
 MAX_FRAMES = int(np.ceil(SR * DURATION / HOP_LENGTH))
 
 CLASS_CONFIG = {
-    "lapar":  {"emoji": "🍽️", "color": "#F59E0B", "icon": "😋", "desc": "Kambing butuh pakan tambahan segera."},
+    "lapar":  {"emoji": "😋", "color": "#F59E0B", "icon": "🍽️", "desc": "Kambing butuh pakan tambahan segera."},
     "normal": {"emoji": "😊", "color": "#10B981", "icon": "🐐", "desc": "Kondisi sehat, tenang, dan sangat baik."},
     "stress": {"emoji": "😰", "color": "#EF4444", "icon": "⚠️",  "desc": "Kambing terindikasi stres! Segera periksa lingkungan."},
 }
