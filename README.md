@@ -18,7 +18,7 @@ The goat condition detection application is available in two platforms:
 >
 > 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
 >
-> Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://drive.google.com/drive/folders/1GbyV6n6u0nKs_SCsu1AZ1Vo0HdbJR2Uh?usp=sharing)**
+> Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://drive.google.com/drive/folders/1Gby6n6u0nKs_SCsu1AZ1Vo0HdbJR2Uh?usp=sharing)**
 
 > [!NOTE]
 > **To request the complete Google Colab Notebook:**
