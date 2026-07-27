@@ -2,6 +2,31 @@
 
 **Keywords:** Animal Welfare Monitoring, Audio Classification, Deep Learning, MFCC, CNN, Smart Farming, Kambing Etawa
 
+## 🚀 Live Application
+
+The goat condition detection application is available in two platforms:
+
+*   🌐 **Website (Streamlit):** [https://goat-sounds-app29.streamlit.app/](https://goat-sounds-app29.streamlit.app/)
+*   📱 **Android (APK):** [Download via Google Drive](https://drive.google.com/file/d/1fPmIA0arowK-Gj5sBmZ-yBF9JBV6fUqj/view?usp=sharing)
+
+## 🔐 Dataset & Code Access
+
+> [!IMPORTANT]
+> **To request access to the dataset:**
+>
+> Please contact the corresponding author directly via email, providing your institutional affiliation and intended use case. Dataset access is granted for **academic and research purposes only**.
+>
+> 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
+>
+> Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://drive.google.com/drive/folders/1GbyV6n6u0nKs_SCsu1AZ1Vo0HdbJR2Uh?usp=sharing)**
+
+> [!NOTE]
+> **To request the complete Google Colab Notebook:**
+>
+> The full, comprehensive Google Colab notebook (`research_pipeline.ipynb`) containing the entire training and optimization process is available upon request. Please email the author specifying your academic background and purpose.
+>
+> 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
+
 ---
 
 ## Table of Contents
@@ -497,21 +522,7 @@ Navigate to `http://localhost:8501` to upload goat audio files and receive real-
 
 The audio dataset is **not included** in this repository due to file size constraints. The dataset constitutes primary research data collected under a formal research protocol.
 
-> [!IMPORTANT]
-> **To request access to the dataset:**
->
-> Please contact the corresponding author directly via email, providing your institutional affiliation and intended use case. Dataset access is granted for **academic and research purposes only**.
->
-> 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
->
-> Alternatively, request access via the Google Drive link: 🔗 **[Request Dataset Access](https://drive.google.com/drive/folders/1GbyV6n6u0nKs_SCsu1AZ1Vo0HdbJR2Uh?usp=sharing)**
 
-> [!NOTE]
-> **To request the complete Google Colab Notebook:**
->
-> The full, comprehensive Google Colab notebook (`research_pipeline.ipynb`) containing the entire training and optimization process is available upon request. Please email the author specifying your academic background and purpose.
->
-> 📧 **Contact:** [wahyukusumaw29@gmail.com](mailto:wahyukusumaw29@gmail.com)
 
 ### Dataset Terms of Use
 
